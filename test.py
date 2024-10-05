@@ -20,7 +20,7 @@ def test(img_size):
     model.eval()
     print("resolution", model.encoder.img_size)
 
-    image, _, f_px = depth_pro.load_rgb("data/girl.jpg")
+    image, _, f_px = depth_pro.load_rgb("data/example.jpg")
     image = transform(image)
 
     prediction = model.infer(image)
@@ -33,6 +33,10 @@ def test(img_size):
 
 
 if __name__ == "__main__":
+    # on RTX3070ti
+    # 1.911 FPS
     test(img_size=384)
+    # 4.901 FPS
     test(img_size=256)
+    # 18.01 FPS
     test(img_size=128)
