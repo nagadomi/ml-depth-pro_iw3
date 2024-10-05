@@ -1,6 +1,7 @@
 *~
 .DS_Store
 /checkpoints
+/tmp
 
 # ----- Python.gitignore
 # Byte-compiled / optimized / DLL files
