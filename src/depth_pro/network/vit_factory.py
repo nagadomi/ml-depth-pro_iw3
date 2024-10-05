@@ -95,7 +95,7 @@ def create_vit(
         model.forward_features = types.MethodType(forward_features_eva_fixed, model)
     else:
         model = timm.create_model(
-            config.timm_preset, pretrained=use_pretrained, dynamic_img_size=True
+            config.timm_preset, pretrained=use_pretrained, dynamic_img_size=False
         )
     model = make_vit_b16_backbone(
         model,
