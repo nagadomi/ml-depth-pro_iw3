@@ -39,7 +39,7 @@ class DepthProConfig:
 DEFAULT_MONODEPTH_CONFIG_DICT = DepthProConfig(
     patch_encoder_preset="dinov2l16_384",
     image_encoder_preset="dinov2l16_384",
-    checkpoint_uri="./checkpoints/depth_pro.pt",
+    checkpoint_uri="https://ml-site.cdn-apple.com/models/depth-pro/depth_pro.pt",
     decoder_features=256,
     use_fov_head=True,
     fov_encoder_preset="dinov2l16_384",
@@ -134,7 +134,9 @@ def create_model_and_transforms(
         ]
     )
     if config.checkpoint_uri is not None:
-        state_dict = torch.load(config.checkpoint_uri, map_location="cpu", weights_only=True)
+        state_dict = torch.hub.load_state_dict_from_url(
+            config.checkpoint_uri,
+            weights_only=True, map_location=torch.device("cpu"))
         missing_keys, unexpected_keys = model.load_state_dict(
             state_dict=state_dict,
         )
