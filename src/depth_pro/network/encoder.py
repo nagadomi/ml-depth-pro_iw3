@@ -169,7 +169,7 @@ class DepthProEncoder(nn.Module):
 
     def split(self, x: torch.Tensor, overlap_ratio: float = 0.25) -> torch.Tensor:
         """Split the input into small patches with sliding window."""
-        patch_size = 384
+        patch_size = self.patch_encoder.patch_embed.img_size[0]
         patch_stride = int(patch_size * (1 - overlap_ratio))
 
         image_size = x.shape[-1]
@@ -190,7 +190,6 @@ class DepthProEncoder(nn.Module):
     def merge(self, x: torch.Tensor, batch_size: int, padding: int = 3) -> torch.Tensor:
         """Merge the patched input into a image with sliding window."""
         steps = int(math.sqrt(x.shape[0] // batch_size))
-
         idx = 0
 
         output_list = []
@@ -275,8 +274,13 @@ class DepthProEncoder(nn.Module):
             self.out_size,
             self.out_size,
         )
+
+        img_size = self.patch_encoder.patch_embed.img_size[0]
+        assert img_size in {384, 256, 128}
+
+        padding = {384: 3, 256: 2, 128: 1}[img_size]
         x_latent0_features = self.merge(
-            x_latent0_encodings[: batch_size * 5 * 5], batch_size=batch_size, padding=3
+            x_latent0_encodings[: batch_size * 5 * 5], batch_size=batch_size, padding=padding,
         )
 
         x_latent1_encodings = self.reshape_feature(
@@ -284,8 +288,9 @@ class DepthProEncoder(nn.Module):
             self.out_size,
             self.out_size,
         )
+        padding = {384: 3, 256: 2, 128: 1}[img_size]
         x_latent1_features = self.merge(
-            x_latent1_encodings[: batch_size * 5 * 5], batch_size=batch_size, padding=3
+            x_latent1_encodings[: batch_size * 5 * 5], batch_size=batch_size, padding=padding
         )
 
         # Split the 35 batch size from pyramid encoding back into 5x5+3x3+1x1.
@@ -296,10 +301,12 @@ class DepthProEncoder(nn.Module):
         )
 
         # 96x96 feature maps by merging 5x5 @ 24x24 patches with overlaps.
-        x0_features = self.merge(x0_encodings, batch_size=batch_size, padding=3)
+        padding = {384: 3, 256: 2, 128: 1}[img_size]
+        x0_features = self.merge(x0_encodings, batch_size=batch_size, padding=padding)
 
         # 48x84 feature maps by merging 3x3 @ 24x24 patches with overlaps.
-        x1_features = self.merge(x1_encodings, batch_size=batch_size, padding=6)
+        padding = {384: 6, 256: 4, 128: 2}[img_size]
+        x1_features = self.merge(x1_encodings, batch_size=batch_size, padding=padding)
 
         # 24x24 feature maps.
         x2_features = x2_encodings

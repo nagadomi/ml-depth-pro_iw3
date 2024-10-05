@@ -20,7 +20,7 @@ from torchvision.transforms import (
 from .network.decoder import MultiresConvDecoder
 from .network.encoder import DepthProEncoder
 from .network.fov import FOVNetwork
-from .network.vit_factory import VIT_CONFIG_DICT, ViTPreset, create_vit
+from .network.vit_factory import VIT_CONFIG_DICT, ViTPreset, create_vit, resize_vit
 
 
 @dataclass
@@ -73,6 +73,7 @@ def create_model_and_transforms(
     config: DepthProConfig = DEFAULT_MONODEPTH_CONFIG_DICT,
     device: torch.device = torch.device("cpu"),
     precision: torch.dtype = torch.float32,
+    img_size=384,
 ) -> Tuple[DepthPro, Compose]:
     """Create a DepthPro model and load weights from `config.checkpoint_uri`.
 
@@ -87,6 +88,8 @@ def create_model_and_transforms(
         The Torch DepthPro model and associated Transform.
 
     """
+    assert img_size in {384, 256, 128}
+
     patch_encoder, patch_encoder_config = create_backbone_model(
         preset=config.patch_encoder_preset
     )
@@ -96,7 +99,8 @@ def create_model_and_transforms(
 
     fov_encoder = None
     if config.use_fov_head and config.fov_encoder_preset is not None:
-        fov_encoder, _ = create_backbone_model(preset=config.fov_encoder_preset)
+        if img_size == 384: # TODO: img_size=256,128
+            fov_encoder, _ = create_backbone_model(preset=config.fov_encoder_preset)
 
     dims_encoder = patch_encoder_config.encoder_feature_dims
     hook_block_ids = patch_encoder_config.encoder_feature_layer_ids
@@ -115,7 +119,7 @@ def create_model_and_transforms(
         encoder=encoder,
         decoder=decoder,
         last_dims=(32, 1),
-        use_fov_head=config.use_fov_head,
+        use_fov_head=config.use_fov_head and fov_encoder is not None,
         fov_encoder=fov_encoder,
     ).to(device)
 
@@ -130,13 +134,13 @@ def create_model_and_transforms(
             ConvertImageDtype(precision),
         ]
     )
-
     if config.checkpoint_uri is not None:
-        state_dict = torch.load(config.checkpoint_uri, map_location="cpu")
+        state_dict = torch.load(config.checkpoint_uri, map_location="cpu", weights_only=True)
         missing_keys, unexpected_keys = model.load_state_dict(
-            state_dict=state_dict, strict=True
+            state_dict=state_dict,
+            strict=False, # TODO: fov encoder for 128, 256
         )
-
+        """
         if len(unexpected_keys) != 0:
             raise KeyError(
                 f"Found unexpected keys when loading monodepth: {unexpected_keys}"
@@ -147,6 +151,15 @@ def create_model_and_transforms(
         missing_keys = [key for key in missing_keys if "fc_norm" not in key]
         if len(missing_keys) != 0:
             raise KeyError(f"Keys are missing when loading monodepth: {missing_keys}")
+        """
+
+    if img_size != 384:
+        img_size = (img_size, img_size)
+        model.encoder.patch_encoder = resize_vit(model.encoder.patch_encoder, img_size=img_size)
+        model.encoder.image_encoder = resize_vit(model.encoder.image_encoder, img_size=img_size)
+        model.encoder.out_size = int(
+            model.encoder.patch_encoder.patch_embed.img_size[0] // model.encoder.patch_encoder.patch_embed.patch_size[0]
+        )
 
     return model, transform
 
@@ -279,11 +292,17 @@ class DepthPro(nn.Module):
             )
 
         canonical_inverse_depth, fov_deg = self.forward(x)
-        if f_px is None:
-            f_px = 0.5 * W / torch.tan(0.5 * torch.deg2rad(fov_deg.to(torch.float)))
-        
-        inverse_depth = canonical_inverse_depth * (W / f_px)
-        f_px = f_px.squeeze()
+        if fov_deg is not None:
+            if f_px is None:
+                f_px = 0.5 * W / torch.tan(0.5 * torch.deg2rad(fov_deg.to(torch.float)))
+            inverse_depth = canonical_inverse_depth * (W / f_px)
+            f_px = f_px.squeeze()
+        else:
+            # fov_deg = 17.3281
+            # fov_deg = torch.tensor([[[[fov_deg]]]], dtype=torch.float, device=canonical_inverse_depth.device)
+            # f_px = 0.5 * W / torch.tan(0.5 * torch.deg2rad(fov_deg.to(torch.float)))
+            # inverse_depth = canonical_inverse_depth * (W / f_px)
+            inverse_depth = canonical_inverse_depth
 
         if resize:
             inverse_depth = nn.functional.interpolate(
