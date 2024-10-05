@@ -8,6 +8,33 @@ from torch import nn
 from torch.nn import functional as F
 
 
+def replication_pad2d_naive(x, padding, detach=False):
+    # For MPS compatibility
+    assert x.ndim == 4 and len(padding) == 4
+    left, right, top, bottom = padding
+
+    detach_fn = lambda t: t.detach() if detach else t
+    if left > 0:
+        x = torch.cat((*((detach_fn(x[:, :, :, :1]),) * left), x), dim=3)
+    elif left < 0:
+        x = x[:, :, :, -left:]
+    if right > 0:
+        x = torch.cat((x, *((detach_fn(x[:, :, :, -1:]),) * right)), dim=3)
+    elif right < 0:
+        x = x[:, :, :, :right]
+    if top > 0:
+        x = torch.cat((*((detach_fn(x[:, :, :1, :]),) * top), x), dim=2)
+    elif top < 0:
+        x = x[:, :, -top:, :]
+    if bottom > 0:
+        x = torch.cat((x, *((detach_fn(x[:, :, -1:, :]),) * bottom)), dim=2)
+    elif bottom < 0:
+        x = x[:, :, :bottom, :]
+
+    return x.contiguous()
+
+
+
 class FOVNetwork(nn.Module):
     """Field of View estimation network."""
 
@@ -50,8 +77,24 @@ class FOVNetwork(nn.Module):
             )
             self.downsample = nn.Sequential(*fov_head0)
         else:
+            raise NotImplementedError("fov")
             fov_head = fov_head0 + fov_head
         self.head = nn.Sequential(*fov_head)
+
+
+    def forward_fov_head(self, x):
+        assert len(self.head) == 5
+        x = self.head[0](x)
+        x = self.head[1](x)
+        x = self.head[2](x)
+        x = self.head[3](x)
+        if x.shape[2] < 6:
+            pad = (6 - x.shape[2]) // 2
+            x = replication_pad2d_naive(x, (pad,) * 4)
+            # x = F.interpolate(x, size=(6, 6), mode="bilinear", align_corners=False)
+
+        x = self.head[4](x)
+        return x
 
     def forward(self, x: torch.Tensor, lowres_feature: torch.Tensor) -> torch.Tensor:
         """Forward the fov network.
@@ -79,4 +122,4 @@ class FOVNetwork(nn.Module):
             x = x.reshape_as(lowres_feature) + lowres_feature
         else:
             x = lowres_feature
-        return self.head(x)
+        return self.forward_fov_head(x)

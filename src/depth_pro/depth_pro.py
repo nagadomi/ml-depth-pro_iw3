@@ -99,8 +99,7 @@ def create_model_and_transforms(
 
     fov_encoder = None
     if config.use_fov_head and config.fov_encoder_preset is not None:
-        if img_size == 384: # TODO: img_size=256,128
-            fov_encoder, _ = create_backbone_model(preset=config.fov_encoder_preset)
+        fov_encoder, _ = create_backbone_model(preset=config.fov_encoder_preset)
 
     dims_encoder = patch_encoder_config.encoder_feature_dims
     hook_block_ids = patch_encoder_config.encoder_feature_layer_ids
@@ -119,7 +118,7 @@ def create_model_and_transforms(
         encoder=encoder,
         decoder=decoder,
         last_dims=(32, 1),
-        use_fov_head=config.use_fov_head and fov_encoder is not None,
+        use_fov_head=config.use_fov_head,
         fov_encoder=fov_encoder,
     ).to(device)
 
@@ -138,9 +137,7 @@ def create_model_and_transforms(
         state_dict = torch.load(config.checkpoint_uri, map_location="cpu", weights_only=True)
         missing_keys, unexpected_keys = model.load_state_dict(
             state_dict=state_dict,
-            strict=False, # TODO: fov encoder for 128, 256
         )
-        """
         if len(unexpected_keys) != 0:
             raise KeyError(
                 f"Found unexpected keys when loading monodepth: {unexpected_keys}"
@@ -151,7 +148,6 @@ def create_model_and_transforms(
         missing_keys = [key for key in missing_keys if "fc_norm" not in key]
         if len(missing_keys) != 0:
             raise KeyError(f"Keys are missing when loading monodepth: {missing_keys}")
-        """
 
     if img_size != 384:
         img_size = (img_size, img_size)
@@ -160,6 +156,8 @@ def create_model_and_transforms(
         model.encoder.out_size = int(
             model.encoder.patch_encoder.patch_embed.img_size[0] // model.encoder.patch_encoder.patch_embed.patch_size[0]
         )
+        if hasattr(model, "fov") and hasattr(model.fov, "encoder"):
+            model.fov.encoder[0] = resize_vit(model.fov.encoder[0], img_size=img_size)
 
     return model, transform
 
