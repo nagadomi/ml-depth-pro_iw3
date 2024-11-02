@@ -118,6 +118,8 @@ class FOVNetwork(nn.Module):
                 align_corners=False,
             )
             x = self.encoder(x)[:, 1:].permute(0, 2, 1)
+            if x.device.type == "mps":
+                x = x.contiguous()
             lowres_feature = self.downsample(lowres_feature)
             x = x.reshape_as(lowres_feature) + lowres_feature
         else:

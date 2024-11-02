@@ -227,6 +227,8 @@ class DepthProEncoder(nn.Module):
 
         # Shape: (batch, height, width, dim) -> (batch, dim, height, width)
         embeddings = embeddings.reshape(b, height, width, c).permute(0, 3, 1, 2)
+        if embeddings.device.type == "mps":
+            embeddings = embeddings.contiguous()
         return embeddings
 
     def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
